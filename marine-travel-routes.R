@@ -4,16 +4,19 @@ library(shiny.semantic)
 library(janitor)
 library(leaflet)
 library(scales)
-theme_set(theme_light())
+library(shinythemes)
+library(geosphere)
 
 marine_df <- read_csv('ships.csv') %>% 
-  clean_names()
-
-ship_names <- marine_df %>% 
-  select(shipname) %>% 
-  distinct() %>% 
+  clean_names() %>% 
   mutate(shipname = str_to_title(shipname))
 
+ship_types <- marine_df %>% 
+  select(ship_type) %>% 
+  distinct()
+
+ship_names <- marine_df  %>% 
+  distinct(shipname, .keep_all = TRUE)
 
 icons <- awesomeIcons(
   icon = 'fa-ship',
@@ -23,36 +26,46 @@ icons <- awesomeIcons(
 )
 
 
-ui <- fluidPage(title = "Marine Travel Routes",
-               theme = "slate",
-               sidebarLayout(
-                 sidebarPanel(
-                   selectInput("ship_name", 
-                               label = "Select Ship:",
-                               choices = ship_names$shipname, 
-                               selected = c('Karoli'),
-                               selectize = TRUE,
-                               multiple = FALSE)
-                   ),
-                 mainPanel(
-                   # fluidRow(valueBoxOutput(""), #voyage_distance
-                   #          valueBoxOutput("")),  #voyage_length
-                   fluidRow(box(leafletOutput("marine_map")))
-                 )
-))
+ui <- semanticPage(
+  titlePanel("Marine Travel Routes"),
+  theme = "superhero",
+  selectInput("ship_class", 
+              label = "Select a Ship Type:",
+              choices = ship_types$ship_type, 
+              selected = 'Karoli',
+              selectize = TRUE,
+              multiple = FALSE),
+  selectInput("ship_name", 
+              label = "Select a Ship:",
+              choices = ship_names$shipname, 
+              selected = 'Cargo',
+              selectize = TRUE,
+              multiple = FALSE),
+  fluidRow(valueBoxOutput("voyage_dist")), #voyage_distance
+  fluidRow(leafletOutput("marine_map"))
+)
 server <- function(input, output, session) {
   
+observeEvent(input$ship_class,{
+    updateSelectInput(session,'ship_name',
+                      choices=ship_names %>% 
+                        filter(ship_names$ship_type == input$ship_class) %>% 
+                        select(shipname))
+  }) 
   orig_dest <- reactive({
     marine_df %>% 
+      mutate(dist_max = speed*0.514*120) %>% 
       group_by(shipname) %>% 
-      slice(c(1, n())) %>%
+      slice(c((which.max(dist_max) - 1), which.max(dist_max))) %>% 
       ungroup() %>% 
-      filter(shipname == input$ship_name)
+      filter(ship_type %in% input$ship_class) %>% 
+      filter(shipname %in% input$ship_name)
   })
   
   dat <- reactive({
     marine_df %>% 
-      filter(shipname == input$ship_name)
+      filter(ship_type %in% input$ship_class) %>% 
+      filter(shipname %in% input$ship_name)
   })
   
   output$marine_map <- renderLeaflet({
@@ -61,6 +74,7 @@ server <- function(input, output, session) {
     addTiles() %>% 
     addAwesomeMarkers(data = orig_dest(), ~lon, ~lat, icon = ~icons) %>% 
     addPolylines(data = dat(), ~lon, ~lat, weight = 2) %>% 
+    addProviderTiles(providers$Esri.WorldImagery) %>%
     addScaleBar('bottomleft') %>%
     addControl('', position = "topleft")
   })
