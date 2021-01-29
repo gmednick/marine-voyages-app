@@ -1,0 +1,117 @@
+---
+title: "marine-tracker"
+author: "Gabe Mednick"
+date: "1/22/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(shiny)
+library(shiny.semantic)
+library(janitor)
+library(leaflet)
+library(scales)
+library(lubridate)
+```
+
+```{r}
+marine_df <- read_csv('ships.csv') %>% 
+  clean_names() %>% 
+  mutate(across(c(shipname, port, destination), str_to_title)) %>% 
+  drop_na()
+
+# write_rds(marine_df, "marine_df.rds")
+
+marine_df %>% 
+  count(ship_type) %>% 
+  mutate(ship_type = fct_reorder(ship_type, n)) %>% 
+  ggplot(aes(n, ship_type, fill = ship_type)) +
+  geom_col() +
+  labs(title = "Ship type and frequency",
+       x = "Count",
+       y = "") +
+  theme(legend.position = "none")
+
+marine_df %>% 
+  select(shipname) %>% 
+  distinct()
+
+marine_df %>% summarise(min_date = min(date),
+                        max_date = max(date))
+```
+
+```{r}
+orig_dest <- marine_df %>% 
+  group_by(shipname) %>% 
+  slice(c(1, n())) %>%
+  ungroup() %>% 
+  filter(shipname == "Karoli")
+
+dat <- marine_df %>%
+  group_by(shipname) %>% 
+  arrange(datetime) %>% 
+  mutate(dist_max = speed*0.514*120) %>% 
+  ungroup() %>% 
+  filter(shipname == "Karoli")
+
+trip_duration <- marine_df %>% 
+  group_by(shipname) %>% 
+  summarize(min = min(date), 
+            max = max(date),
+            days = difftime(max, min, unit = "days")) %>% 
+  ungroup()
+
+max_dist_int <- dat %>% 
+  group_by(shipname) %>% 
+  slice(c((which.max(dist_max) - 1), which.max(dist_max))) %>% 
+  ungroup()
+
+max_speed_dist <- marine_df %>% 
+      arrange(desc(datetime)) %>% 
+      mutate(dist_max = speed*0.514*120) %>% 
+      group_by(shipname) %>% 
+      slice(c((which.max(dist_max) - 1), which.max(dist_max))) %>% 
+      ungroup()
+
+icons <- awesomeIcons(
+  icon = 'fa-ship',
+  iconColor = 'blue',
+  library = 'fa',
+  markerColor = "lightred"
+) 
+
+marine_map <- leaflet() %>% 
+  addTiles() %>% 
+  addAwesomeMarkers(data = orig_dest, ~lon, ~lat, icon = ~icons) %>% 
+  addPolylines(data = dat, ~lon, ~lat, weight = 2) %>% 
+  addScaleBar('bottomleft') %>%
+  addControl('', position = "topleft")
+
+
+
+```
+
+```{r}
+home <- awesomeIcons(icon = "home", library = "glyphicon",
+  markerColor = "blue", iconColor = "white", spin = FALSE,
+  extraClasses = NULL, squareMarker = FALSE, iconRotate = 0,
+  fontFamily = "monospace", text = NULL)
+
+icons <- awesomeIcons(
+  icon = 'fa-ship',
+  iconColor = 'blue',
+  library = 'fa'
+)
+
+leaflet(data = dat) %>% 
+  addTiles() %>% 
+  addAwesomeMarkers(~lon, ~lat, icon = ~icons)
+
+
+```
+
